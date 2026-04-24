@@ -1,0 +1,45 @@
+{
+  "models": {
+    "deepseek-v4-pro": {
+      "contextWindow": 1000000,
+      "currency": "RMB",
+      "defaultCacheHitRatio": 0.925,
+      "prices": {
+        "inputCacheHit": 1,
+        "inputCacheMiss": 12,
+        "output": 24
+      }
+    },
+    "deepseek-v4-flash": {
+      "contextWindow": 1000000,
+      "currency": "RMB",
+      "defaultCacheHitRatio": 0.925,
+      "prices": {
+        "inputCacheHit": 0.2,
+        "inputCacheMiss": 1,
+        "output": 2
+      }
+    },
+    "deepseek-reasoner": {
+      "contextWindow": 1000000,
+      "currency": "RMB",
+      "defaultCacheHitRatio": 0.925,
+      "prices": {
+        "inputCacheHit": 1,
+        "inputCacheMiss": 12,
+        "output": 24
+      }
+    },
+    "claude-sonnet-4-20250514": {
+      "contextWindow": 200000,
+      "currency": "USD",
+      "prices": {
+        "input": 3,
+        "output": 15
+      },
+      "usdToRmb": 7.25
+    }
+  },
+  "defaultModel": "deepseek-v4-flash",
+  "usdToRmb": 7.25
+}

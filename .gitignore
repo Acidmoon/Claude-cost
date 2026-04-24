@@ -1,0 +1,10 @@
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
+
+# Local per-machine config (permissions, env, etc.)
+.claude/settings.local.json
+
+# Empty hooks placeholder
+hooks/

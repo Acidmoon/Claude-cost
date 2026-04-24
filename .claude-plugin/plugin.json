@@ -1,0 +1,8 @@
+{
+  "name": "claude-cost",
+  "description": "在状态栏实时显示 token 用量、RMB 费用和上下文窗口百分比",
+  "author": {
+    "name": "Claude Cost Dev"
+  },
+  "version": "1.0.0"
+}
