@@ -95,12 +95,36 @@ function queryToday(app = 'claude') {
 // 原理：cc-switch 的 token_plan 模板在后端（src-tauri/src/services/coding_plan.rs）
 // 按 codingPlanProvider 路由到不同 API，前端只缓存结果。我们这里直接复用同套
 // 路由：仅当 currentProviderClaude 的 meta.usage_script.templateType === "token_plan"
-// 才发起查询，结果按 TTL 内存缓存，避免 statusline 每秒刷新打 API。
+// 才发起查询。
+//
+// 缓存策略：每次 statusline 刷新都是新 Node 进程，进程内变量无法跨进程复用，
+// 必须用文件持久化。statusline 1s 刷一次、API TTL=90s → 实际 90 次刷新才打一次。
+// 错误也短缓存（15s），避免 API 故障期每秒刷错误。
 // ---------------------------------------------------------------------------
 
-const TOKEN_PLAN_TTL_MS = 90 * 1000;   // 缓存 90s
+const TOKEN_PLAN_TTL_MS    = 90 * 1000;
+const TOKEN_PLAN_ERR_TTL   = 15 * 1000;
 const TOKEN_PLAN_TIMEOUT_MS = 8 * 1000;
-let _quotaCache = { ts: 0, key: '', data: null, err: null };
+const TOKEN_PLAN_CACHE_FILE = path.join(os.homedir(), '.claude', 'cost-token-plan-cache.json');
+
+function cacheRead() {
+  try {
+    const raw = fs.readFileSync(TOKEN_PLAN_CACHE_FILE, 'utf8');
+    const j = JSON.parse(raw);
+    if (j && typeof j.ts === 'number' && j.key) return j;
+  } catch { /* 文件不存在/损坏视为未缓存 */ }
+  return null;
+}
+function cacheWrite(entry) {
+  try {
+    const tmp = TOKEN_PLAN_CACHE_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(entry));
+    fs.renameSync(tmp, TOKEN_PLAN_CACHE_FILE);  // 原子替换
+  } catch { /* 写失败忽略，下一次重试 */ }
+}
+function cacheClear() {
+  try { fs.unlinkSync(TOKEN_PLAN_CACHE_FILE); } catch {}
+}
 
 // codingPlanProvider → API 配置（与 Rust 端 CODING_PLAN_PROVIDERS 保持同效）
 // 仅实现 minimax；kimi/zhipu 等可后续按需补
@@ -217,13 +241,13 @@ function queryTokenPlan() {
   const prov = getCurrentClaudeProvider();
   if (!prov) {
     // 拿不到 provider（settings.json 解析失败 / DB 不可用）→ 清掉 stale 缓存
-    _quotaCache = { ts: 0, key: '', data: null, err: null };
+    cacheClear();
     return null;
   }
   const us = prov.meta && prov.meta.usage_script;
   if (!us || !us.enabled || us.templateType !== 'token_plan') {
     // 当前 provider 不是 token_plan：清掉旧 provider 残留的缓存
-    _quotaCache = { ts: 0, key: '', data: null, err: null };
+    cacheClear();
     return null;
   }
   const routeKey = us.codingPlanProvider;
@@ -235,19 +259,25 @@ function queryTokenPlan() {
 
   const cacheKey = `${prov.id}|${routeKey}`;
   const now = Date.now();
-  // provider 换了 → 缓存 key 不匹配 → 直接重新查（不需清，下面新赋值会覆盖）
-  if (_quotaCache.key === cacheKey && now - _quotaCache.ts < TOKEN_PLAN_TTL_MS) {
-    return _quotaCache.data || { error: _quotaCache.err };
+  // 命中持久化缓存（key 匹配 + 未过期）
+  const cached = cacheRead();
+  if (cached && cached.key === cacheKey) {
+    const age = now - cached.ts;
+    const ttl = cached.data ? TOKEN_PLAN_TTL_MS : TOKEN_PLAN_ERR_TTL;
+    if (age < ttl) {
+      return cached.data || (cached.err ? { error: cached.err } : null);
+    }
   }
 
   const body = fetchQuotaSync(route.buildUrl(prov.env), route.headers(apiKey));
   if (body && body._err) {
-    _quotaCache = { ts: now, key: cacheKey, data: null, err: body._err };
+    cacheWrite({ ts: now, key: cacheKey, data: null, err: body._err });
     return { error: body._err };
   }
   const tiers = route.parse(body);
-  _quotaCache = { ts: now, key: cacheKey, data: { ok: true, tiers, provider: routeKey }, err: null };
-  return _quotaCache.data;
+  const data = { ok: true, tiers, provider: routeKey };
+  cacheWrite({ ts: now, key: cacheKey, data, err: null });
+  return data;
 }
 
 function fmtCountdown(ms) {
@@ -284,7 +314,7 @@ function renderQuota(q) {
     if (!tier) continue;
     const pct = Math.round(tier.utilization);
     const cd  = tier.resets_at ? fmtCountdown(tier.resets_at - now) : '';
-    const cdTxt = cd ? DIM(`↻${cd}`) : '';
+    const cdTxt = cd ? DIM(`(${cd})`) : '';
     parts.push(`${label} ${paintQuota(pct)} ${cdTxt}`.trim());
   }
   return parts.length ? parts.join(' ') : null;
