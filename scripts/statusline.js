@@ -285,7 +285,7 @@ function renderQuota(q) {
     const pct = Math.round(tier.utilization);
     const cd  = tier.resets_at ? fmtCountdown(tier.resets_at - now) : '';
     const cdTxt = cd ? DIM(`↻${cd}`) : '';
-    parts.push(`${label} ${paintQuota(pct)} ${bar(pct, 8)} ${cdTxt}`);
+    parts.push(`${label} ${paintQuota(pct)} ${cdTxt}`.trim());
   }
   return parts.length ? parts.join(' ') : null;
 }
@@ -342,13 +342,14 @@ function main() {
   const reqTok = (cur.input_tokens || 0) + (cur.output_tokens || 0)
                + (cur.cache_creation_input_tokens || 0) + (cur.cache_read_input_tokens || 0);
 
-  // 累计用 dim（背景信息），请求用默认色（"当前多大"），
-  // 接近模型上限时整段标红警戒
+  // 累计用 dim（背景信息），请求用默认色（"当前多大"），接近模型上限时整段标红
+  // 当 reqTok == cumTok（session 刚开始或刚 compact，两值算出来一样）时只显示一个
   const cumStr = cumTok > 0 ? DIM(`累计 ${fmt(cumTok)}`) : '';
-  const reqStr = reqTok > 0 ? `请求 ${fmt(reqTok)}` : '';
+  const showReq = reqTok > 0 && reqTok !== cumTok;
   const reqRatio = reqTok / apiWin;
   const reqColor = reqRatio >= 0.8 ? RED : (s => s);
-  const head = `${modelId} ${[cumStr, reqTok > 0 ? reqColor(reqStr + '/' + fmt(apiWin)) : ''].filter(Boolean).join(' ')}`.trim();
+  const reqStr = showReq ? reqColor(`请求 ${fmt(reqTok)}/${fmt(apiWin)}`) : '';
+  const head = `${modelId} ${[cumStr, reqStr].filter(Boolean).join(' ')}`.trim();
 
   // CCS 数据段
   const sess  = querySession(data.session_id, 'claude');
