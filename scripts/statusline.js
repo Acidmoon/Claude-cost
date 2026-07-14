@@ -331,12 +331,24 @@ function main() {
   const modelId = (data.model && data.model.id) || process.env.ANTHROPIC_MODEL || config.defaultModel;
 
   // 上下文窗口（stdin 实时）
+  // Claude Code 的 used_percentage 是「下一次 API 请求的 token 数 ÷ 模型上限」，
+  // **不是**历史会话累计，对长会话+cache 场景会严重偏低（8% 实际可能已累计 200k+）。
+  // 改成两个真实数字：
+  //   累计 = total_input_tokens + total_output_tokens  （整个 session 真正用过的 token）
+  //   请求 = current_usage 各项合计                      （下一次发给模型的请求大小）
   const apiWin = cw.context_window_size || 200000;
-  const usedPct = cw.used_percentage || 0;
-  const ctxNow = Math.round(usedPct / 100 * apiWin);
+  const cumTok = (cw.total_input_tokens || 0) + (cw.total_output_tokens || 0);
+  const cur = cw.current_usage || {};
+  const reqTok = (cur.input_tokens || 0) + (cur.output_tokens || 0)
+               + (cur.cache_creation_input_tokens || 0) + (cur.cache_read_input_tokens || 0);
 
-  const pctTxt = usedPct >= 90 ? RED(Math.round(usedPct) + '%') : (Math.round(usedPct) + '%');
-  const head = `📊 ${modelId} ${pctTxt} ${bar(usedPct)} ${fmt(ctxNow)}/${fmt(apiWin)}`;
+  // 累计用 dim（背景信息），请求用默认色（"当前多大"），
+  // 接近模型上限时整段标红警戒
+  const cumStr = cumTok > 0 ? DIM(`累计 ${fmt(cumTok)}`) : '';
+  const reqStr = reqTok > 0 ? `请求 ${fmt(reqTok)}` : '';
+  const reqRatio = reqTok / apiWin;
+  const reqColor = reqRatio >= 0.8 ? RED : (s => s);
+  const head = `${modelId} ${[cumStr, reqTok > 0 ? reqColor(reqStr + '/' + fmt(apiWin)) : ''].filter(Boolean).join(' ')}`.trim();
 
   // CCS 数据段
   const sess  = querySession(data.session_id, 'claude');
