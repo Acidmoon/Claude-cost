@@ -307,9 +307,10 @@ const RED = s => `\x1b[31m${s}\x1b[0m`;
 const CYN = s => `\x1b[36m${s}\x1b[0m`;
 const YEL = s => `\x1b[33m${s}\x1b[0m`;
 const DIM = s => `\x1b[2m${s}\x1b[0m`;
+const BLD = s => `\x1b[1m${s}\x1b[0m`;
 function paintCost(cny) {
-  const s = '≈¥' + cny.toFixed(2);
-  return cny >= 10 ? RED(s) : YEL(s);
+  const s = '¥' + cny.toFixed(2);
+  return cny >= 10 ? RED(s) : (cny >= 5 ? YEL(s) : s);
 }
 
 // ---------------------------------------------------------------------------
@@ -343,21 +344,23 @@ function main() {
   const segs = [];
 
   if (sess && sess.req > 0) {
-    // 精确模式：input / output / cache_read (CCS 已按真实定价计算 cost_usd)
+    // 精确模式：input (dim) / output (bold) / cache_read (cyan) 由颜色区分
+    // 位置语义：r in↓ out↑ cache（无文字标签）
     const cny = sess.cost_usd * usdToRmb;
+    const cr = sess.cr_tok > 0 ? ` ${CYN(fmt(sess.cr_tok))}` : '';
     segs.push(
-      `会话[${sess.req}r ${fmt(sess.in_tok)}↓ ${fmt(sess.out_tok)}↑ ${CYN(fmt(sess.cr_tok) + 'cache')}] ${paintCost(cny)}`
+      `会话[${DIM(sess.req + 'r')} ${DIM(fmt(sess.in_tok) + '↓')} ${BLD(fmt(sess.out_tok) + '↑')}${cr}] ${paintCost(cny)}`
     );
   } else if ((cw.total_input_tokens | 0) || (cw.total_output_tokens | 0)) {
-    // 降级：CCS 不可用，用 stdin 的累计（不含 cache_read，故只标 "stdin"）
+    // 降级：CCS 不可用，stdin 累计（不含 cache_read）
     const total = (cw.total_input_tokens || 0) + (cw.total_output_tokens || 0);
-    segs.push(DIM(`会话[stdin ${fmt(total)}tok]`));
+    segs.push(DIM(`会话[stdin ${fmt(total)}]`));
   }
 
   if (today && today.req > 0) {
     const total = today.in_tok + today.out_tok + today.cr_tok + today.cc_tok;
     const cny = today.cost_usd * usdToRmb;
-    segs.push(`今日[${today.req}r ${fmt(total)}tok] ${paintCost(cny)}`);
+    segs.push(`今日[${DIM(today.req + 'r')} ${DIM(fmt(total))}] ${paintCost(cny)}`);
   }
 
   // Token Plan 额度（5h / 1w）—— 仅当 currentProviderClaude 是 token_plan 时出现
